@@ -1,6 +1,6 @@
 require("dotenv").config();
 const path = require("path");
-const { createServer } = require("http");
+const { createServer } = require("https");
 
 const express = require("express");
 const { getIO, initIO } = require("./socket");
