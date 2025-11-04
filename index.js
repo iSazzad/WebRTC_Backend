@@ -1,4 +1,3 @@
-require("dotenv").config();
 const path = require("path");
 const { createServer } = require("http");
 
@@ -11,7 +10,7 @@ app.use("/", express.static(path.join(__dirname, "static")));
 
 const httpServer = createServer(app);
 
-let port = process.env.PORT || 3500;
+let port = process.env.PORT || 3000;
 
 initIO(httpServer);
 
