@@ -1,20 +1,4 @@
-const path = require("path");
-const { createServer } = require("http");
+require('dotenv').config();
+const { start } = require('./src/server');
 
-const express = require("express");
-const { getIO, initIO } = require("./socket");
-
-const app = express();
-
-app.use("/", express.static(path.join(__dirname, "static")));
-
-const httpServer = createServer(app);
-
-let port = process.env.PORT || 3000;
-
-initIO(httpServer);
-
-httpServer.listen(port);
-console.log("Server started on ", port);
-
-getIO();
+start();
