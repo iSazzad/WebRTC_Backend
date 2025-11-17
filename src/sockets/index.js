@@ -2,7 +2,12 @@ const { Server } = require("socket.io");
 let IO;
 
 module.exports.initIO = (httpServer) => {
-  IO = new Server(httpServer);
+  IO = new Server(httpServer, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
+  });
 
   IO.use((socket, next) => {
     if (socket.handshake.query) {
