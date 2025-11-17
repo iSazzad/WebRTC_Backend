@@ -4,16 +4,27 @@ const { port } = require("./config/env");
 const { connectDB } = require("./config/db");
 const { initIO } = require("./sockets");
 
-const server = http.createServer(app);
+// Check if running in Vercel serverless environment
+const isVercelEnv = !!process.env.VERCEL;
+
+let server;
 
 function start() {
-  initIO(server);
+  // Only create HTTP server if not in serverless environment
+  if (!isVercelEnv) {
+    server = http.createServer(app);
+    initIO(server);
+  }
 
   connectDB()
     .then(() => {
-      server.listen(port, () => {
-        console.log("Server listening on", port);
-      });
+      if (!isVercelEnv) {
+        server.listen(port, () => {
+          console.log("Server listening on", port);
+        });
+      } else {
+        console.log("Running in Vercel serverless environment");
+      }
     })
     .catch((err) => {
       console.error("Failed to connect to MongoDB:", err.message);
@@ -21,9 +32,9 @@ function start() {
     });
 }
 
-// Start immediately if run directly
+// Start immediately if run directly (local development)
 if (require.main === module) {
   start();
 }
 
-module.exports = { server, start };
+module.exports = { app, server, start };

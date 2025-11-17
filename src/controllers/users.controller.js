@@ -23,7 +23,6 @@ async function createUser(req, res, next) {
     }
 
     const dummyName = generate8CharId();
-
     const userId = await generateUniqueUserId(User);
 
     const user = await User.create({
@@ -145,12 +144,14 @@ async function getUserByEmail(req, res, next) {
 //5 Send OTP to Verify User Email
 async function sendOtp(req, res, next) {
   try {
-    const { email } = req.body;
+    const { email } = req.body || {};
     if (!email) return error(res, 400, STR.EMAIL_IS_REQUIRED, {});
 
     // Find User
     const user = await User.findOne({ email });
-    if (!user) return error(res, 404, STR.USER_NOT_FOUND, {});
+    console.log("user data: ", user);
+
+    if (!(user && user.email)) return error(res, 404, STR.USER_NOT_FOUND, {});
 
     // Generate OTP and expiry
     const otp = generateOTP();
