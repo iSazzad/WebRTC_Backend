@@ -1,32 +1,17 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { sendOtpEmail } = require("../utils/email");
+const { success, error } = require("../utils/response");
+const {
+  generateUniqueUserId,
+  generate8CharId,
+  generateOTP,
+} = require("../utils/constants");
+const STR = require("../utils/strings");
+const { jwtSecret } = require("../config/env");
 
-// 🧩 Generate unique 16-digit user ID
-async function generateUniqueUserId() {
-  let userId, existingUser;
-  do {
-    const buffer = crypto.randomBytes(8);
-    const num = BigInt("0x" + buffer.toString("hex"))
-      .toString()
-      .slice(0, 16);
-    userId = num.padStart(16, "0");
-    console.log("new upated id: ", userId);
-
-    existingUser = await User.findOne({ userId });
-  } while (existingUser);
-  return userId;
-}
-
-function generate8CharId() {
-  return crypto
-    .randomBytes(6) // 6 bytes ≈ 8 characters after base64url encoding
-    .toString("base64") // convert to base64
-    .replace(/[^a-zA-Z0-9]/g, "") // remove non-alphanumeric
-    .slice(0, 8); // keep first 8 chars
-}
-
-// 1️⃣ Create user + return access & refresh token
+// 1️⃣ Create user
 async function createUser(req, res, next) {
   try {
     const { name, email, password } = req.body || {};
@@ -34,13 +19,12 @@ async function createUser(req, res, next) {
     // Check if email exists
     if (email) {
       const existing = await User.findOne({ email });
-      if (existing)
-        return res.status(409).json({ message: "Email already exists" });
+      if (existing) return error(res, 409, STR.EMAIL_ALREADY_EXISTS, {});
     }
 
     const dummyName = generate8CharId();
 
-    const userId = await generateUniqueUserId();
+    const userId = await generateUniqueUserId(User);
 
     const user = await User.create({
       name: name || dummyName,
@@ -55,15 +39,28 @@ async function createUser(req, res, next) {
 
     user.refreshToken = refreshToken;
     await user.save();
+    if (email) {
+      // Generate OTP and expiry
+      const otp = generateOTP();
+      const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
 
-    return res.status(201).json({
-      message: "User created successfully",
-      user: { name: user.name, email: user.email, userId: user.userId },
-      tokens: {
-        access: accessToken,
-        refresh: refreshToken,
-      },
-    });
+      user.otp = otp;
+      user.otpExpiresAt = otpExpiresAt;
+      await user.save();
+
+      // Send OTP via email ✉️
+      await sendOtpEmail(email, otp);
+
+      return success(res, 200, STR.OTP_SENT_SUCCESS, {
+        email,
+        expiresIn: "15 minutes",
+      });
+    } else {
+      return success(res, 201, STR.GUEST_CREATED_SUCCESS, {
+        user: { name: user.name, email: user.email, userId: user.userId },
+        tokens: { access: accessToken, refresh: refreshToken },
+      });
+    }
   } catch (err) {
     next(err);
   }
@@ -77,16 +74,14 @@ async function updateUser(req, res, next) {
 
     if (email && email !== user.email) {
       const existing = await User.findOne({ email });
-      if (existing)
-        return res.status(409).json({ message: "Email already exists" });
+      if (existing) return error(res, 409, STR.EMAIL_ALREADY_EXISTS, {});
       user.email = email;
     }
 
     if (name) user.name = name;
     await user.save();
 
-    return res.status(200).json({
-      message: "User updated successfully",
+    return success(res, 200, STR.USER_UPDATED_SUCCESS, {
       user: { name: user.name, email: user.email, userId: user.userId },
     });
   } catch (err) {
@@ -98,8 +93,7 @@ async function updateUser(req, res, next) {
 async function getUser(req, res, next) {
   try {
     const user = req.user;
-    return res.status(200).json({
-      message: "Receiver User Details successfully",
+    return success(res, 200, STR.RECEIVER_USER_DETAILS, {
       user: { name: user.name, email: user.email, userId: user.userId },
     });
   } catch (err) {
@@ -111,25 +105,111 @@ async function getUser(req, res, next) {
 async function refreshToken(req, res) {
   try {
     const { refreshToken } = req.body;
-    if (!refreshToken)
-      return res.status(400).json({ message: "Refresh token required" });
+    if (!refreshToken) return error(res, 400, STR.REFRESH_TOKEN_REQUIRED, {});
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    const decoded = jwt.verify(refreshToken, jwtSecret);
 
     const user = await User.findOne({ userId: decoded.userId });
     if (!user || user.refreshToken !== refreshToken)
-      return res.status(401).json({ message: "Invalid refresh token" });
+      return error(res, 401, STR.INVALID_REFRESH_TOKEN, {});
 
     const newAccessToken = user.generateAuthToken("24h");
 
-    return res.status(200).json({
-      message: "New token issued",
-      token: newAccessToken,
+    return success(res, 200, STR.NEW_TOKEN_ISSUED, { token: newAccessToken });
+  } catch (err) {
+    return error(res, 401, STR.INVALID_OR_EXPIRED_REFRESH, {});
+  }
+}
+
+async function getUserByEmail(req, res, next) {
+  try {
+    // Support email as URL path param: /api/users/:email
+    const raw = req.params && req.params.email;
+    const email = raw ? decodeURIComponent(raw) : null;
+    if (!email) return error(res, 400, STR.EMAIL_IS_REQUIRED, {});
+
+    const user = await User.findOne({ email });
+    if (!user) return error(res, 404, STR.USER_NOT_FOUND, {});
+
+    return success(res, 200, STR.USER_FETCHED_SUCCESS, {
+      name: user.name,
+      email: user.email,
+      userId: user.userId,
+      verified: user.verified,
     });
   } catch (err) {
-    return res
-      .status(401)
-      .json({ message: "Invalid or expired refresh token" });
+    next(err);
+  }
+}
+
+//5 Send OTP to Verify User Email
+async function sendOtp(req, res, next) {
+  try {
+    const { email } = req.body;
+    if (!email) return error(res, 400, STR.EMAIL_IS_REQUIRED, {});
+
+    // Find User
+    const user = await User.findOne({ email });
+    if (!user) return error(res, 404, STR.USER_NOT_FOUND, {});
+
+    // Generate OTP and expiry
+    const otp = generateOTP();
+    const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+
+    user.otp = otp;
+    user.otpExpiresAt = otpExpiresAt;
+    await user.save();
+
+    // Send OTP via email ✉️
+    await sendOtpEmail(email, otp);
+
+    return success(res, 200, STR.OTP_SENT_SUCCESS, {
+      email,
+      expiresIn: "15 minutes",
+    });
+  } catch (err) {
+    console.error("❌ Error sending OTP:", err);
+    next(err);
+  }
+}
+
+// Verify User Email OTP
+async function verifyOtp(req, res, next) {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return error(res, 400, STR.EMAIL_AND_OTP_REQUIRED, {});
+
+    const user = await User.findOne({ email });
+    if (!user) return error(res, 404, STR.USER_NOT_FOUND, {});
+
+    if (user.otp !== otp) return error(res, 400, STR.INVALID_OTP, {});
+
+    if (!user.otpExpiresAt || new Date() > user.otpExpiresAt)
+      return error(res, 400, STR.OTP_EXPIRED, {});
+
+    user.verified = true;
+    user.otp = null;
+    user.otpExpiresAt = null;
+    await user.save();
+
+    // Generate access and refresh tokens after successful verification (match createUser response)
+    const accessToken = user.generateAuthToken();
+    const refreshToken = user.generateRefreshToken();
+
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    return success(res, 200, STR.OTP_VERIFIED_SUCCESS, {
+      user: {
+        email: user.email,
+        name: user.name,
+        userId: user.userId,
+        verified: user.verified,
+      },
+      tokens: { access: accessToken, refresh: refreshToken },
+    });
+  } catch (err) {
+    next(err);
   }
 }
 
@@ -138,4 +218,7 @@ module.exports = {
   updateUser,
   getUser,
   refreshToken,
+  getUserByEmail,
+  sendOtp,
+  verifyOtp,
 };

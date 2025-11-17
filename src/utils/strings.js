@@ -1,0 +1,27 @@
+"use strict";
+
+module.exports = {
+  EMAIL_ALREADY_EXISTS: "Email already exists",
+  USER_CREATED_SUCCESS: "User created successfully",
+  GUEST_CREATED_SUCCESS: "Guest created successfully",
+  USER_UPDATED_SUCCESS: "User updated successfully",
+  RECEIVER_USER_DETAILS: "Receiver User Details successfully",
+  REFRESH_TOKEN_REQUIRED: "Refresh token required",
+  INVALID_REFRESH_TOKEN: "Invalid refresh token",
+  INVALID_OR_EXPIRED_REFRESH: "Invalid or expired refresh token",
+  NEW_TOKEN_ISSUED: "New token issued",
+  EMAIL_IS_REQUIRED: "Email is required",
+  USER_NOT_FOUND: "User not found",
+  OTP_SENT_SUCCESS: "OTP sent successfully",
+  EMAIL_AND_OTP_REQUIRED: "Email and OTP are required",
+  INVALID_OTP: "Invalid OTP",
+  OTP_EXPIRED: "OTP expired",
+  OTP_VERIFIED_SUCCESS: "OTP verified successfully",
+  AUTHORIZATION_TOKEN_MISSING: "Authorization token missing",
+  INVALID_OR_EXPIRED_TOKEN: "Invalid or expired token",
+  NOT_FOUND: "Not Found",
+  INTERNAL_SERVER_ERROR: "Internal Server Error",
+  API_IS_RUNNING: "API is running",
+  HEALTH_OK: "OK",
+  USER_FETCHED_SUCCESS: "User fetched successfully",
+};

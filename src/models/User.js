@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const {
+  jwtSecret,
+  jwtExpiresIn,
+  jwtRefreshExpiresIn,
+} = require("../config/env");
 
 const userSchema = new mongoose.Schema(
   {
@@ -13,6 +18,9 @@ const userSchema = new mongoose.Schema(
     userId: { type: String, required: true, trim: true, unique: true },
     password: { type: String, trim: true },
     refreshToken: { type: String, default: null },
+    otp: { type: String, trim: true },
+    otpExpiresAt: { type: Date },
+    verified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -38,9 +46,7 @@ userSchema.methods.comparePassword = async function (plainPassword) {
 //
 // 🔐 Generate short-lived access token
 //
-userSchema.methods.generateAuthToken = function (
-  expiry = process.env.JWT_EXPIRES_IN || "7d"
-) {
+userSchema.methods.generateAuthToken = function (expiry = jwtExpiresIn) {
   const payload = { userId: this.userId };
 
   const options =
@@ -48,7 +54,7 @@ userSchema.methods.generateAuthToken = function (
       ? {} // No expiration
       : { expiresIn: expiry };
 
-  return jwt.sign(payload, process.env.JWT_SECRET, options);
+  return jwt.sign(payload, jwtSecret, options);
 };
 
 //
@@ -57,8 +63,8 @@ userSchema.methods.generateAuthToken = function (
 userSchema.methods.generateRefreshToken = function () {
   return jwt.sign(
     { userId: this.userId },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "30d" } // default 30 days
+    jwtSecret,
+    { expiresIn: jwtRefreshExpiresIn } // default 30 days
   );
 };
 
