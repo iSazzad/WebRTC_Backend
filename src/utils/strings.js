@@ -24,4 +24,5 @@ module.exports = {
   API_IS_RUNNING: "API is running",
   HEALTH_OK: "OK",
   USER_FETCHED_SUCCESS: "User fetched successfully",
+  ALL_USERS_FETCHED_SUCCESS: "All Users fetched successfully",
 };

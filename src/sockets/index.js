@@ -23,26 +23,29 @@ module.exports.initIO = (httpServer) => {
     // -------------------------------
     // CALL INITIATION
     // -------------------------------
-    socket.on("call", ({ calleeId, rtcMessage }) => {
+    socket.on("call", ({ calleeId, rtcMessage, type }) => {
       socket.to(calleeId).emit("newCall", {
         callerId: socket.user,
         rtcMessage,
+        type,
       });
     });
 
     // ANSWER CALL
-    socket.on("answerCall", ({ callerId, rtcMessage }) => {
+    socket.on("answerCall", ({ callerId, rtcMessage, type }) => {
       socket.to(callerId).emit("callAnswered", {
         callee: socket.user,
         rtcMessage,
+        type,
       });
     });
 
     // EXCHANGE ICE CANDIDATES
-    socket.on("ICEcandidate", ({ calleeId, rtcMessage }) => {
+    socket.on("ICEcandidate", ({ calleeId, rtcMessage, type }) => {
       socket.to(calleeId).emit("ICEcandidate", {
         sender: socket.user,
         rtcMessage,
+        type,
       });
     });
 
@@ -76,7 +79,7 @@ module.exports.initIO = (httpServer) => {
       );
 
       socket.to(calleeId).emit("incomingMediaChangeRequest", {
-        type, // "video" or "audio"
+        type,
         callerId: socket.user,
       });
     });
@@ -99,20 +102,12 @@ module.exports.initIO = (httpServer) => {
       });
     });
 
-    // -------------------------------
-    // RENEGOTIATION
-    // -------------------------------
-    socket.on("renegotiateOffer", ({ calleeId, rtcMessage }) => {
-      socket.to(calleeId).emit("renegotiateOffer", {
-        callerId: socket.user,
-        rtcMessage,
-      });
-    });
+    socket.on("endVideo", ({ callerId, type }) => {
+      console.log(`❌ endVideo ${type} by ${socket.user}`);
 
-    socket.on("renegotiateAnswer", ({ callerId, rtcMessage }) => {
-      socket.to(callerId).emit("renegotiateAnswer", {
+      socket.to(callerId).emit("endedVideo", {
+        type,
         calleeId: socket.user,
-        rtcMessage,
       });
     });
   });

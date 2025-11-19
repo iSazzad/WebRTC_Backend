@@ -100,6 +100,24 @@ async function getUser(req, res, next) {
   }
 }
 
+//Get All users (auth required)
+async function getAllUsers(req, res, next) {
+  try {
+    const users = await User.find({}).sort({ name: 1 });
+    const data = users.map((user) => ({
+      name: user.name,
+      email: user.email,
+      userId: user.userId,
+      verified: user.verified,
+    }));
+    return success(res, 200, STR.ALL_USERS_FETCHED_SUCCESS, data);
+  } catch (err) {
+    console.log("error: ", err);
+
+    next(err);
+  }
+}
+
 // 4️⃣ Refresh token (generate new access token)
 async function refreshToken(req, res) {
   try {
@@ -222,4 +240,5 @@ module.exports = {
   getUserByEmail,
   sendOtp,
   verifyOtp,
+  getAllUsers,
 };

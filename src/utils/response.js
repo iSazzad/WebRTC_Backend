@@ -1,6 +1,6 @@
 "use strict";
 
-function success(res, statusCode = 200, message = "", data = {}) {
+function success(res, statusCode = 200, message = "", data = {} || []) {
   return res.status(statusCode).json({ message, data });
 }
 
