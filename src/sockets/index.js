@@ -1,4 +1,20 @@
 const { Server } = require("socket.io");
+const { createPrivateChatId, safeAck } = require("../utils/constants");
+const Chat = require("../models/Chat").default;
+const Message = require("../models/Message").default;
+const User = require("../models/User");
+const {
+  findLastMessageWithUsers,
+  updateMessageReadStatus,
+  sendChatMessage,
+  getChatMessages,
+} = require("./chat.socket");
+const {
+  inviteUser,
+  acceptInvitation,
+  getInvitedUsers,
+  rejectInvitation,
+} = require("./invite.socket");
 let IO;
 
 module.exports.initIO = (httpServer) => {
@@ -20,16 +36,19 @@ module.exports.initIO = (httpServer) => {
     console.log(`✅ ${socket.user} connected`);
     socket.join(socket.user);
 
-    // -------------------------------
     // CALL INITIATION
-    // -------------------------------
-    socket.on("call", ({ calleeId, rtcMessage, type }) => {
-      socket.to(calleeId).emit("newCall", {
-        callerId: socket.user,
-        rtcMessage,
-        type,
-      });
-    });
+    socket.on(
+      "call",
+      ({ calleeId, callUUID, calleeName, rtcMessage, type }) => {
+        socket.to(calleeId).emit("newCall", {
+          callerId: socket.user,
+          callUUID,
+          callerName: calleeName,
+          rtcMessage,
+          type,
+        });
+      },
+    );
 
     // ANSWER CALL
     socket.on("answerCall", ({ callerId, rtcMessage, type }) => {
@@ -70,12 +89,10 @@ module.exports.initIO = (httpServer) => {
       });
     });
 
-    // -------------------------------
     // MEDIA CHANGE (UPGRADE/DOWNGRADE)
-    // -------------------------------
     socket.on("requestMediaChange", ({ calleeId, type }) => {
       console.log(
-        `📨 Media-change request ${socket.user} → ${calleeId} (${type})`
+        `📨 Media-change request ${socket.user} → ${calleeId} (${type})`,
       );
 
       socket.to(calleeId).emit("incomingMediaChangeRequest", {
@@ -109,6 +126,142 @@ module.exports.initIO = (httpServer) => {
         type,
         calleeId: socket.user,
       });
+    });
+
+    // JOIN CHAT
+    socket.on("joinChat", async ({ chatUniqueId }) => {
+      let chat = await Chat.findOne({ chatUniqueId });
+
+      if (!chat) {
+        return socket.emit("chatError", { message: "Chat not found" });
+      }
+
+      socket.join(chatUniqueId);
+      socket.emit("chatReady", { chatUniqueId });
+    });
+
+    // LEAVE CHAT
+    socket.on("leaveChat", ({ chatUniqueId }) => {
+      console.log("Chat disconnected:", socket.user, chatUniqueId);
+      socket.leave(chatUniqueId);
+    });
+
+    // SEND MESSAGE
+    socket.on("sendMessage", async (data, ack) => {
+      try {
+        const formattedMessage = await sendChatMessage(data);
+
+        // 📤 send to OTHER users
+        socket.to(data.chatUniqueId).emit("receiveMessage", {
+          message: formattedMessage,
+        });
+
+        const chat = await Chat.findOne({
+          chatUniqueId: data.chatUniqueId,
+        }).populate("participants", "userId _id");
+
+        for (const participant of chat.participants) {
+          socket.to(participant.userId).emit("chatListUpdate", {
+            messageId: formattedMessage._id,
+            senderId: formattedMessage.senderId,
+            chatUniqueId: data.chatUniqueId,
+          });
+        }
+
+        // ✅ ACK back to SENDER
+        ack?.({
+          success: true,
+          message: formattedMessage,
+        });
+      } catch (err) {
+        console.error("sendMessage error:", err);
+
+        ack?.({
+          success: false,
+          error: "Failed to send message",
+        });
+      }
+    });
+
+    // FETCH MESSAGES WITH PAGINATION
+    socket.on("getMessages", async (data) => {
+      const result = await getChatMessages(data, socket);
+
+      socket.emit("messagesList", {
+        page: result.page,
+        messages: result.messages,
+      });
+    });
+
+    // MARK MESSAGE AS DELIVERED
+    socket.on("messageDelivered", async ({ messageId, chatUniqueId }) => {
+      await Message.findByIdAndUpdate(messageId, {
+        "status.deliveredAt": new Date(),
+      });
+      socket
+        .to(chatUniqueId)
+        .emit("deliveryReceipt", { userId: socket.user, messageId });
+    });
+
+    // MARK MESSAGE AS READ
+    socket.on("messageRead", async ({ chatUniqueId, userId }) => {
+      console.log("messageRead event:", { chatUniqueId, userId });
+
+      await updateMessageReadStatus(chatUniqueId, userId);
+      socket.to(chatUniqueId).emit("readReceipt", { userId });
+    });
+
+    // FETCH CHAT LIST WITH LAST MESSAGES
+    socket.on("lastMessageWithUsers", async () => {
+      const result = await findLastMessageWithUsers(socket);
+      socket.emit("chatListResponse", result);
+    });
+
+    // FETCH INVITED USERS
+    socket.on("invitedUsers", async (data, ack) => {
+      try {
+        const invitedUsers = await getInvitedUsers(socket.user);
+        ack({ success: true, data: invitedUsers });
+      } catch (err) {
+        console.error("invitedUsers error:", err);
+        ack({ success: false, message: "Failed to fetch invited users" });
+      }
+    });
+
+    // INVITE USER
+    socket.on("inviteUser", async (data, ack) => {
+      const { toUserId } = data;
+      const invitationData = await inviteUser(toUserId, socket);
+      if (!invitationData.success) {
+        return ack({ success: false, message: invitationData.message });
+      }
+      socket.to(toUserId).emit("invitedUsersUpdate", {});
+      ack({ success: true, data: invitationData.data });
+    });
+
+    // ACCEPT INVITATION
+    socket.on("acceptInvitation", async (data, ack) => {
+      const { invitationRequestId } = data;
+      const acceptanceData = await acceptInvitation(invitationRequestId);
+
+      if (!acceptanceData.success) {
+        return ack?.(acceptanceData);
+      }
+      socket.to(acceptanceData.data.fromUserId).emit("invitedUsersUpdate", {});
+      console.log("acceptance data: ", acceptanceData);
+      ack?.(acceptanceData);
+    });
+
+    // REJECT INVITATION
+    socket.on("rejectInvitation", async (data, ack) => {
+      const { invitationRequestId } = data;
+      const rejectionData = await rejectInvitation(invitationRequestId);
+
+      if (!rejectionData.success) {
+        return ack?.(rejectionData);
+      }
+      socket.to(rejectionData.data.fromUserId).emit("invitedUsersUpdate", {});
+      ack?.(rejectionData);
     });
   });
 };

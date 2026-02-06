@@ -1,4 +1,3 @@
-const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { sendOtpEmail } = require("../utils/email");
@@ -10,6 +9,7 @@ const {
 } = require("../utils/constants");
 const STR = require("../utils/strings");
 const { jwtSecret } = require("../config/env");
+const { default: InvitationRequest } = require("../models/InvitationRequest");
 
 // 1️⃣ Create user
 async function createUser(req, res, next) {
@@ -104,12 +104,38 @@ async function getUser(req, res, next) {
 async function getAllUsers(req, res, next) {
   try {
     const users = await User.find({}).sort({ name: 1 });
+
+    const toUserIds = users.map((user) => user._id);
+
+    const invitationsPending = await InvitationRequest.find({
+      fromUser: req.user._id,
+      toUser: { $in: toUserIds },
+      status: "pending",
+    }).select("toUser");
+
+    const invitationsAccepted = await InvitationRequest.find({
+      fromUser: req.user._id,
+      toUser: { $in: toUserIds },
+      status: "accepted",
+    }).select("toUser");
+
+    const invitationPending = new Set(
+      invitationsPending.map((inv) => inv.toUser.toString()),
+    );
+
+    const invitationAccepted = new Set(
+      invitationsAccepted.map((inv) => inv.toUser.toString()),
+    );
+
     const data = users.map((user) => ({
       name: user.name,
       email: user.email,
       userId: user.userId,
       verified: user.verified,
+      hasInvitation: invitationPending.has(user._id.toString()),
+      hasAcceptedInvitation: invitationAccepted.has(user._id.toString()),
     }));
+
     return success(res, 200, STR.ALL_USERS_FETCHED_SUCCESS, data);
   } catch (err) {
     console.log("error: ", err);

@@ -33,4 +33,20 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-module.exports = { generateUniqueUserId, generate8CharId, generateOTP };
+const createPrivateChatId = (userId1, userId2) => {
+  return [userId1.toString(), userId2.toString()].sort().join("_");
+};
+
+const safeAck = (ack, payload) => {
+  if (typeof ack === "function") {
+    ack(payload);
+  }
+};
+
+module.exports = {
+  generateUniqueUserId,
+  generate8CharId,
+  generateOTP,
+  createPrivateChatId,
+  safeAck,
+};
